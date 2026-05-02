@@ -472,6 +472,12 @@ function library:formatKeyIndicatorRow(opt)
 	if opt.class == 'bind' then
 		local nm = rowName(opt)
 		if opt.bind == 'none' then
+			-- Default behavior: don't show "Always" binds in the key indicator unless explicitly requested.
+			-- This keeps the indicator list limited to *set* keybinds.
+			if opt.showalways ~= true then
+				iv:SetEnabled(false)
+				return
+			end
 			local display = opt.state
 			if opt.invertindicator then
 				display = not display
@@ -2195,6 +2201,17 @@ function library:init()
                     suffix = ' [' .. formatInlineKeyDisplay(self.inlineBind) .. ']'
                 end
                 self.objects.text.Text = self.baseText .. suffix
+                local h = self.objects.keybindHint
+                if h then
+                    if self.inlineBinding then
+                        h.Text = '[...]'
+                    elseif self.inlineBind == 'none' then
+                        h.Text = '[-]'
+                    else
+                        h.Text = 'RMB'
+                    end
+                    h.Position = newUDim2(1, -(h.TextBounds.X + 8), 0, 5)
+                end
             end
             function toggle:SetInlineBind(keybind, nocallback)
                 self.inlineBinding = false
@@ -2286,6 +2303,17 @@ function library:init()
                     suffix = ' [' .. formatInlineKeyDisplay(self.inlineBind) .. ']'
                 end
                 self.objects.text.Text = self.baseText .. suffix
+                local h = self.objects.keybindHint
+                if h then
+                    if self.inlineBinding then
+                        h.Text = '[...]'
+                    elseif self.inlineBind == 'none' then
+                        h.Text = '[-]'
+                    else
+                        h.Text = 'RMB'
+                    end
+                    h.Position = newUDim2(1, -(h.TextBounds.X + 8), 0, 8)
+                end
             end
             function button:SetInlineBind(keybind, nocallback)
                 self.inlineBinding = false
@@ -2656,13 +2684,13 @@ function library:init()
                         objs.keybindHint = nil;
                         if toggle.keybind then
                             objs.keybindHint = utility:Draw('Text', {
-                                Position = newUDim2(1,-36,0,5);
+                                Position = newUDim2(1,-28,0,5);
                                 ThemeColor = 'Accent';
                                 Size = 11;
                                 Font = 2;
                                 ZIndex = z+9;
                                 Outline = true;
-                                Text = 'RMB';
+                                Text = '[-]';
                                 Parent = objs.holder;
                             })
                         end
@@ -3026,7 +3054,16 @@ function library:init()
                             str = tostring(str);
                             self.objects.keyText.Text = '['..str..']';
                             local hint = self.objects.clickBindHint
-                            local hx = hint and hint.TextBounds.X > 1 and hint.TextBounds.X or 26
+                            if hint then
+                                if str == '...' then
+                                    hint.Text = '[...]'
+                                elseif bind.bind == 'none' then
+                                    hint.Text = '[-]'
+                                else
+                                    hint.Text = 'LMB'
+                                end
+                            end
+                            local hx = hint and hint.TextBounds.X > 1 and hint.TextBounds.X or 22
                             local gap = hint and 6 or 0
                             local xPad = hx + gap + 2
                             self.objects.keyText.Position = newUDim2(0, xPad, 0, 2);
@@ -3796,13 +3833,13 @@ function library:init()
                         objs.keybindHint = nil;
                         if button.keybind then
                             objs.keybindHint = utility:Draw('Text', {
-                                Position = newUDim2(1,-38,0,8);
+                                Position = newUDim2(1,-30,0,8);
                                 ThemeColor = 'Accent';
                                 Size = 11;
                                 Font = 2;
                                 ZIndex = z+8;
                                 Outline = true;
-                                Text = 'RMB';
+                                Text = '[-]';
                                 Parent = objs.holder;
                             })
                         end
@@ -3965,13 +4002,13 @@ function library:init()
                             objs.keybindHint = nil;
                             if button.keybind then
                                 objs.keybindHint = utility:Draw('Text', {
-                                    Position = newUDim2(1,-38,0,8);
+                                    Position = newUDim2(1,-30,0,8);
                                     ThemeColor = 'Accent';
                                     Size = 11;
                                     Font = 2;
                                     ZIndex = z+8;
                                     Outline = true;
-                                    Text = 'RMB';
+                                    Text = '[-]';
                                     Parent = objs.holder;
                                 })
                             end
@@ -4677,7 +4714,7 @@ function library:init()
                             Font = 2;
                             ZIndex = z+2;
                             Outline = true;
-                            Text = 'LMB';
+                            Text = '[-]';
                             Parent = objs.holder;
                         })
                         if bind.noindicator then
@@ -4754,7 +4791,21 @@ function library:init()
                     function bind:SetKeyText(str)
                         str = tostring(str);
                         self.objects.keyText.Text = '['..str..']';
-                        self.objects.keyText.Position = newUDim2(1,-self.objects.keyText.TextBounds.X, 0, 2);
+                        local kw = self.objects.keyText.TextBounds.X
+                        self.objects.keyText.Position = newUDim2(1, -kw, 0, 2);
+                        local h = self.objects.clickBindHint
+                        if h and h.Visible then
+                            if str == '...' then
+                                h.Text = '[...]'
+                            elseif bind.bind == 'none' then
+                                h.Text = '[-]'
+                            else
+                                h.Text = 'LMB'
+                            end
+                            local gap = 6
+                            local hw = h.TextBounds.X
+                            h.Position = newUDim2(1, -kw - gap - hw, 0, 4)
+                        end
                     end
 
                     utility:Connection(inputservice.InputBegan, function(inp)
