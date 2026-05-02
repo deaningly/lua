@@ -1943,6 +1943,12 @@ function library:init()
             function window.dropdown:Refresh()
                 if self.selected ~= nil then
                     local list = self.selected
+                    if typeof(list.values) ~= 'table' then
+                        list.values = {}
+                    end
+                    if typeof(self.objects.values) ~= 'table' then
+                        self.objects.values = {}
+                    end
                     for idx, value in next, list.values do
                         local valueObject = self.objects.values[idx]
                         if valueObject == nil then
@@ -1971,7 +1977,7 @@ function library:init()
                                     local newSelected = currentList.multi and {} or val;
                                     
                                     if currentList.multi then
-                                        for i,v in next, currentSelected do
+                                        for i,v in next, (typeof(currentSelected) == 'table' and currentSelected or {}) do
                                             if v == "none" then continue end
                                             newSelected[i] = v;
                                         end
@@ -3291,6 +3297,7 @@ function library:init()
                         end
     
                         function list:ClearValues()
+                            list.values = typeof(list.values) == 'table' and list.values or {}
                             table.clear(list.values);
                             if window.dropdown.selected == list then
                                 window.dropdown:Refresh()
@@ -4766,6 +4773,7 @@ function library:init()
                     end
 
                     function list:ClearValues()
+                        list.values = typeof(list.values) == 'table' and list.values or {}
                         table.clear(list.values);
                         if window.dropdown.selected == list then
                             window.dropdown:Refresh()
@@ -5129,7 +5137,11 @@ function library:CreateSettingsTab(menu)
     configSection:AddList({text = 'Config', flag = 'selectedconfig'})
 
     local function refreshConfigs()
-        library.options.selectedconfig:ClearValues();
+        local selList = library.options.selectedconfig
+        if selList == nil or selList.ClearValues == nil then
+            return
+        end
+        selList:ClearValues()
         local cfgPath = self.cheatname..'/'..self.gamename..'/configs'
         local files = {}
         local okLf, listed = pcall(function()
@@ -5138,7 +5150,7 @@ function library:CreateSettingsTab(menu)
         if okLf and typeof(listed) == 'table' then
             files = listed
         end
-        for _, v in next, files do
+        for _, v in pairs(files) do
             local ext = '.'..v:split('.')[#v:split('.')];
             if ext == self.fileext then
                 library.options.selectedconfig:AddValue(v:split('\\')[#v:split('\\')]:sub(1,-#ext-1))
