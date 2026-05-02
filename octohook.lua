@@ -42,6 +42,33 @@ local executor = (
     'unknown'
 )
 
+local function base64Decode(data)
+	data = tostring(data):gsub('%s+', ''):gsub('[^A-Za-z0-9%+/=]', '')
+	local b = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+	return (
+		data:gsub('.', function(x)
+			if x == '=' then
+				return ''
+			end
+			local f = (b:find(x, 1, true) or 1) - 1
+			local r = ''
+			for i = 6, 1, -1 do
+				r = r .. (f % 2 ^ i - f % 2 ^ (i - 1) > 0 and '1' or '0')
+			end
+			return r
+		end):gsub('%d%d%d?%d?%d?%d?%d?%d?', function(x)
+			if #x ~= 8 then
+				return ''
+			end
+			local c = 0
+			for i = 1, 8 do
+				c = c + (x:sub(i, i) == '1' and 2 ^ (8 - i) or 0)
+			end
+			return string.char(c)
+		end)
+	)
+end
+
 local library = {
     windows = {};
     indicators = {};
@@ -74,7 +101,57 @@ local library = {
         ['colortrans'] = 'https://raw.githubusercontent.com/portallol/luna/main/modules/trans.png';
     };
     numberStrings = {['Zero'] = 0, ['One'] = 1, ['Two'] = 2, ['Three'] = 3, ['Four'] = 4, ['Five'] = 5, ['Six'] = 6, ['Seven'] = 7, ['Eight'] = 8, ['Nine'] = 9};
-    signal = loadstring(game:HttpGet('https://raw.githubusercontent.com/Quenty/NevermoreEngine/main/src/signal/src/Shared/Signal.lua'))();
+    signal = (function()
+			local Signal = {}
+			Signal.__index = Signal
+			function Signal.new()
+				return setmetatable({ _handlers = {} }, Signal)
+			end
+			function Signal:Connect(fn)
+				local h = self._handlers
+				h[#h + 1] = fn
+				local dead = false
+				return {
+					Disconnect = function()
+						if dead then
+							return
+						end
+						dead = true
+						for i = #h, 1, -1 do
+							if h[i] == fn then
+								table.remove(h, i)
+								break
+							end
+						end
+					end,
+				}
+			end
+			function Signal:Once(fn)
+				local conn
+				conn = self:Connect(function(...)
+					conn:Disconnect()
+					fn(...)
+				end)
+				return conn
+			end
+			function Signal:Fire(...)
+				for _, f in ipairs(self._handlers) do
+					task.spawn(f, ...)
+				end
+			end
+			function Signal:Wait()
+				local thread = coroutine.running()
+				local conn
+				conn = self:Connect(function(...)
+					conn:Disconnect()
+					task.spawn(thread, ...)
+				end)
+				return coroutine.yield()
+			end
+			return setmetatable({ new = Signal.new }, { __call = function(_, ...)
+				return Signal.new(...)
+			end })
+		end)(),
     open = false;
     opening = false;
     hasInit = false;
@@ -279,19 +356,6 @@ local blacklistedKeys = {
     Enum.KeyCode.Escape
 }
 
-local whitelistedBoxKeys = {
-    Enum.KeyCode.Zero,
-    Enum.KeyCode.One,
-    Enum.KeyCode.Two,
-    Enum.KeyCode.Three,
-    Enum.KeyCode.Four,
-    Enum.KeyCode.Five,
-    Enum.KeyCode.Six,
-    Enum.KeyCode.Seven,
-    Enum.KeyCode.Eight,
-    Enum.KeyCode.Nine
-}
-
 local keyNames = {
     [Enum.KeyCode.LeftControl] = 'LCTRL';
     [Enum.KeyCode.RightControl] = 'RCTRL';
@@ -300,6 +364,42 @@ local keyNames = {
     [Enum.UserInputType.MouseButton1] = 'MB1';
     [Enum.UserInputType.MouseButton2] = 'MB2';
     [Enum.UserInputType.MouseButton3] = 'MB3';
+}
+
+library.inlineBindListenTarget = nil
+
+local function formatInlineKeyDisplay(keybind)
+	if keybind == nil or keybind == 'none' then
+		return ''
+	end
+	local named = keyNames[keybind]
+	if named then
+		return named
+	end
+	if typeof(keybind) == 'EnumItem' then
+		return keybind.Name
+	end
+	return tostring(keybind)
+end
+
+-- Fallback when GetStringForKeyCode is missing or returns nothing (unshifted symbols only).
+local boxKeyFallback = {
+	[Enum.KeyCode.Comma] = ',';
+	[Enum.KeyCode.Period] = '.';
+	[Enum.KeyCode.Semicolon] = ';';
+	[Enum.KeyCode.Quote] = "'";
+	[Enum.KeyCode.LeftBracket] = '[';
+	[Enum.KeyCode.RightBracket] = ']';
+	[Enum.KeyCode.BackSlash] = '\\';
+	[Enum.KeyCode.Slash] = '/';
+	[Enum.KeyCode.Minus] = '-';
+	[Enum.KeyCode.Equals] = '=';
+	[Enum.KeyCode.Backquote] = '`';
+	[Enum.KeyCode.KeypadPlus] = '+';
+	[Enum.KeyCode.KeypadMinus] = '-';
+	[Enum.KeyCode.KeypadMultiply] = '*';
+	[Enum.KeyCode.KeypadDivide] = '/';
+	[Enum.KeyCode.KeypadPeriod] = '.';
 }
 
 library.button1down = library.signal.new()
@@ -638,17 +738,46 @@ function library:init()
             return
         end
 
+        local function configStringToBind(str)
+            if str == nil or str == 'none' then
+                return 'none'
+            end
+            if utility:HasProperty(Enum.KeyCode, str) then
+                return Enum.KeyCode[str]
+            end
+            if utility:HasProperty(Enum.UserInputType, str) then
+                return Enum.UserInputType[str]
+            end
+            return 'none'
+        end
+
         local s,e = pcall(function()
             setByConfig = true
             for flag,value in next, http:JSONDecode(cfg) do
                 local option = library.options[flag]
                 if option ~= nil then
                     if option.class == 'toggle' then
-                        option:SetState(value == nil and false or (value == 1 and true or false));
+                        if type(value) == 'table' then
+                            local st = value.state ~= nil and value.state or value[1] or value['1']
+                            option:SetState(st == 1 or st == true, true)
+                            if option.keybind and value.bind ~= nil then
+                                option:SetInlineBind(configStringToBind(value.bind), true)
+                            end
+                        else
+                            option:SetState(value == nil and false or (value == 1 and true or false), true);
+                        end
                     elseif option.class == 'slider' then
                         option:SetValue(value == nil and 0 or value)
                     elseif option.class == 'bind' then
-                        option:SetBind(value == nil and 'none' or (utility:HasProperty(Enum.KeyCode, value) and Enum.KeyCode[value] or Enum.UserInputType[value]));
+                        if value == nil or value == 'none' then
+                            option:SetBind('none')
+                        elseif utility:HasProperty(Enum.KeyCode, value) then
+                            option:SetBind(Enum.KeyCode[value])
+                        elseif utility:HasProperty(Enum.UserInputType, value) then
+                            option:SetBind(Enum.UserInputType[value])
+                        else
+                            option:SetBind('none')
+                        end
                     elseif option.class == 'color' then
                         option:SetColor(value == nil and c3new(1,1,1) or c3new(value[1], value[2], value[3]));
                         option:SetTrans(value == nil and 1 or value[4]);
@@ -656,6 +785,10 @@ function library:init()
                         option:Select(value == nil and '' or value);
                     elseif option.class == 'box' then
                         option:SetInput(value == nil and '' or value)
+                    elseif option.class == 'button' then
+                        if type(value) == 'table' and option.keybind and value.bind ~= nil then
+                            option:SetInlineBind(configStringToBind(value.bind), true)
+                        end
                     end
                 end
             end
@@ -679,11 +812,18 @@ function library:init()
             local cfg = {};
             for flag,option in next, self.options do
                 if option.class == 'toggle' then
-                    cfg[flag] = option.state and 1 or 0;
+                    if option.keybind then
+                        cfg[flag] = {
+                            state = option.state and 1 or 0,
+                            bind = option.inlineBind == 'none' and 'none' or option.inlineBind.Name,
+                        }
+                    else
+                        cfg[flag] = option.state and 1 or 0;
+                    end
                 elseif option.class == 'slider' then
                     cfg[flag] = option.value;
                 elseif option.class == 'bind' then
-                    cfg[flag] = option.bind.Name;
+                    cfg[flag] = option.bind == 'none' and 'none' or option.bind.Name;
                 elseif option.class == 'color' then
                     cfg[flag] = {
                         option.color.r,
@@ -695,6 +835,12 @@ function library:init()
                     cfg[flag] = option.selected;
                 elseif option.class == 'box' then
                     cfg[flag] = option.input
+                elseif option.class == 'button' then
+                    if option.flag and option.keybind then
+                        cfg[flag] = {
+                            bind = option.inlineBind == 'none' and 'none' or option.inlineBind.Name,
+                        }
+                    end
                 end
             end
             writefile(self.cheatname..'/'..self.gamename..'/configs/'..name..self.fileext, http:JSONEncode(cfg));
@@ -749,7 +895,7 @@ function library:init()
 
     utility:Connection(inputservice.InputBegan, function(input, gpe)
         if self.hasInit then
-            if input.KeyCode == self.toggleKey and not library.opening and not gpe then
+            if self.toggleKey ~= nil and input.KeyCode == self.toggleKey and not library.opening and not gpe then
                 self:SetOpen(not self.open)
                 task.spawn(function()
                     library.opening = true;
@@ -1443,14 +1589,14 @@ function library:init()
 
                 objs.sat1 = utility:Draw('Image', {
                     Size = newUDim2(1,0,1,0);
-                    Data = syn.crypt.base64.decode"iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLzK3wl3KAAADrElEQVR42u3TORLCMBBFwT+6/50hMqXSZgonBN0BWCDGYPwqeSWVZPWYVHd0Pc5H86v9areu4Sz9u7XZXT/vvtZtu6dtJtYw525iGya05afnWW17ltPE8fzfTZy/yf3vmCes59xf0Sf/42l3lnvGOyyH+y/bo/X689wCPCYkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEguAQgJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBILgEICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBL8lzft9AVFFzN+ywAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0Nzo1MCswMDowMIxlM90AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6NTArMDA6MDD9OIthAAAAAElFTkSuQmCC";
+                    Data = base64Decode"iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLzK3wl3KAAADrElEQVR42u3TORLCMBBFwT+6/50hMqXSZgonBN0BWCDGYPwqeSWVZPWYVHd0Pc5H86v9areu4Sz9u7XZXT/vvtZtu6dtJtYw525iGya05afnWW17ltPE8fzfTZy/yf3vmCes59xf0Sf/42l3lnvGOyyH+y/bo/X689wCPCYkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEguAQgJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBIgJBASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZAAIYGQQEggJEBIICQQEggJEBIICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIgJBASCAmEBAgJhARCAiEBQgIhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEICIQFCAiGBkEBILgEICYQEQgKEBEICIYGQACGBkEBIICRASCAkEBIICRASCAmEBEIChARCAiGBkAAhgZBASICQQEggJBASICQQEggJhAQICYQEQgIhAUICIYGQQEiAkEBIICQQEiAkEBIICYQECAmEBEIChARCAiGBkAAhgZBASCAkQEggJBASCAkQEggJhARCAoQEQgIhgZAAIYGQQEggJEBIICQQEiAkEBL8lzft9AVFFzN+ywAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0Nzo1MCswMDowMIxlM90AAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6NTArMDA6MDD9OIthAAAAAElFTkSuQmCC";
                     ZIndex = z+3;
                     Parent = objs.mainColor;
                 })
 
                 objs.sat2 = utility:Draw('Image', {
                     Size = newUDim2(1,0,1,0);
-                    Data = syn.crypt.base64.decode"iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLyBEeyyCAAAD4klEQVR42u3YwQnAQAhFQTek/5pz9eBtEYzMlBD4PDcRADDBieMjwK3HJwBDghFepx0oEhgSOO0ARQJDAqcdKBJgSGBI4I0EhgQ47cCQwJDAGwlQJDAkcNqBIgGKBIoEhgROO0CRQJFAkQBDAqcdGBI47QBFAkUCQwKnHaBIoEigSKBIgCKBIYHTDhQJUCQwJHDagSIBigSGBE47UCRAkcCQwGkHKBIoEigSGBLgtANDAkMCbyTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBIoEqBIYEjgtANFUiRQJFAkMCTAaQeKBIoEigQYEjjtQJFAkQBFAkMCpx0oEmBI4LQDRQJFAhQJDAmcdqBIgCKBIoEhAU47UCRQJFAkwJDAaQeKBIYEOO1AkUCRYHuRTAmcduC0A0UCFAkUCQwJnHaAIoEigSKBIQFOO2gvkimBIoE3EhgS4LQDRQJDAqcdoEigSKBIYEiAIYEhwXx+NoAigSGB0w5QJDAkMCQwJKDiZwMoEhgSOO0ARQJFgnlFMiVw2oHTDhQJUCRQJDAkcNoBVZFMCRQJvJHAkACnHSgSKBIoElANSZPAaQdOOzAkwGkHigSGBIYEGBK08LMBFAkUCRQJMCQwJDAkWMjPBlAkMCRw2gG5SKYEigTeSGBIgNMOFAkMCQwJMCRo4WcDKBIYEjjtgFwkUwJFAm8kMCTAaQeKBIoEigRUQ9IkcNqB0w4MCXDagSKBIsHCIpkSOO3AaQeKBCgSKBIYEhgSYEjQws8GUCQwJHDaAblIpgSKBN5IYEiA0w4UCQwJDAkwJGjhZwMoEhgSOO0ARQJDAkMCQwIqfjaAIoEigSIBhgROO5hXJFMCpx047UCRAEUCRQJDAqcdUBXJlECRwBsJDAlw2oEigSKBIgGGBIYEhgSL+dkAigSGBE47QJHAkMBpB4oEGBIYEhgSrOZnAygSKBIoEmBI4LQDRQJFAhQJDAmcdrC8SKYEigTeSGBIgNMOFAkMCZx2gCKBIoEigSEBTjtQJFAkUCTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBKgSKBIYEjgtAMUCRQJFAkMCXDagSKBIoEiAYYETjtQJFAkQJHAkMBpB4oEGBI47UCRQJEARQJDAqcdoEigSGBI4LQDFAkUCRQJFAkwJHDagSKBIQFOOzAkMCTwRgIMCZx2oEigSIAigSKBIYHTzkcARQJFAkMCnHZgSGBI4I0EGBI47UCRQJEAQwKnHSgSKBKgSGBI4LQDRQIUCRQJDAmcdoAigSGB0w5QJFAkUCQwJMBpB4oEhgROO0CRwJDAkMAbCVAkMCT4gw/reQYigE05fAAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0NzozMiswMDowMN2VK3MAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6MzIrMDA6MDCsyJPPAAAAAElFTkSuQmCC";
+                    Data = base64Decode"iVBORw0KGgoAAAANSUhEUgAAAaQAAAGkCAQAAADURZm+AAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JQAAgIMAAPn/AACA6QAAdTAAAOpgAAA6mAAAF2+SX8VGAAAAAmJLR0QA/4ePzL8AAAAJcEhZcwAACxMAAAsTAQCanBgAAAAHdElNRQflBwwSLyBEeyyCAAAD4klEQVR42u3YwQnAQAhFQTek/5pz9eBtEYzMlBD4PDcRADDBieMjwK3HJwBDghFepx0oEhgSOO0ARQJDAqcdKBJgSGBI4I0EhgQ47cCQwJDAGwlQJDAkcNqBIgGKBIoEhgROO0CRQJFAkQBDAqcdGBI47QBFAkUCQwKnHaBIoEigSKBIgCKBIYHTDhQJUCQwJHDagSIBigSGBE47UCRAkcCQwGkHKBIoEigSGBLgtANDAkMCbyTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBIoEqBIYEjgtANFUiRQJFAkMCTAaQeKBIoEigQYEjjtQJFAkQBFAkMCpx0oEmBI4LQDRQJFAhQJDAmcdqBIgCKBIoEhAU47UCRQJFAkwJDAaQeKBIYEOO1AkUCRYHuRTAmcduC0A0UCFAkUCQwJnHaAIoEigSKBIQFOO2gvkimBIoE3EhgS4LQDRQJDAqcdoEigSKBIYEiAIYEhwXx+NoAigSGB0w5QJDAkMCQwJKDiZwMoEhgSOO0ARQJFgnlFMiVw2oHTDhQJUCRQJDAkcNoBVZFMCRQJvJHAkACnHSgSKBIoElANSZPAaQdOOzAkwGkHigSGBIYEGBK08LMBFAkUCRQJMCQwJDAkWMjPBlAkMCRw2gG5SKYEigTeSGBIgNMOFAkMCQwJMCRo4WcDKBIYEjjtgFwkUwJFAm8kMCTAaQeKBIoEigRUQ9IkcNqB0w4MCXDagSKBIsHCIpkSOO3AaQeKBCgSKBIYEhgSYEjQws8GUCQwJHDaAblIpgSKBN5IYEiA0w4UCQwJDAkwJGjhZwMoEhgSOO0ARQJDAkMCQwIqfjaAIoEigSIBhgROO5hXJFMCpx047UCRAEUCRQJDAqcdUBXJlECRwBsJDAlw2oEigSKBIgGGBIYEhgSL+dkAigSGBE47QJHAkMBpB4oEGBIYEhgSrOZnAygSKBIoEmBI4LQDRQJFAhQJDAmcdrC8SKYEigTeSGBIgNMOFAkMCZx2gCKBIoEigSEBTjtQJFAkUCTAkMBpB4oEigQoEhgSOO1AkQBDAqcdKBKgSKBIYEjgtAMUCRQJFAkMCXDagSKBIoEiAYYETjtQJFAkQJHAkMBpB4oEGBI47UCRQJEARQJDAqcdoEigSGBI4LQDFAkUCRQJFAkwJHDagSKBIQFOOzAkMCTwRgIMCZx2oEigSIAigSKBIYHTzkcARQJFAkMCnHZgSGBI4I0EGBI47UCRQJEAQwKnHSgSKBKgSGBI4LQDRQIUCRQJDAmcdoAigSGB0w5QJFAkUCQwJMBpB4oEhgROO0CRwJDAkMAbCVAkMCT4gw/reQYigE05fAAAACV0RVh0ZGF0ZTpjcmVhdGUAMjAyMS0wNy0xMlQxODo0NzozMiswMDowMN2VK3MAAAAldEVYdGRhdGU6bW9kaWZ5ADIwMjEtMDctMTJUMTg6NDc6MzIrMDA6MDCsyJPPAAAAAElFTkSuQmCC";
                     ZIndex = z+4;
                     Parent = objs.mainColor;
                 })
@@ -1900,6 +2046,197 @@ function library:init()
             end)
         end
 
+        local function attachToggleInlineKeybind(toggle)
+            if not toggle.keybind then
+                return
+            end
+            toggle.indicatorValue = library.keyIndicator:AddValue({
+                key = toggle.baseText,
+                value = '[—]',
+                enabled = false,
+            })
+            function toggle:RefreshKeybindLabel()
+                local suffix = ''
+                if self.inlineBinding then
+                    suffix = ' [...]'
+                elseif self.inlineBind ~= 'none' then
+                    suffix = ' [' .. formatInlineKeyDisplay(self.inlineBind) .. ']'
+                end
+                self.objects.text.Text = self.baseText .. suffix
+            end
+            function toggle:SetInlineBind(keybind, nocallback)
+                if keybind == Enum.KeyCode.Backspace then
+                    keybind = 'none'
+                end
+                self.inlineBind = keybind or 'none'
+                self:RefreshKeybindLabel()
+                if self.indicatorValue then
+                    if self.inlineBind == 'none' then
+                        self.indicatorValue:SetEnabled(false)
+                        self.indicatorValue:SetValue('[—]')
+                    else
+                        self.indicatorValue:SetKey(self.baseText)
+                        self.indicatorValue:SetValue('[' .. formatInlineKeyDisplay(self.inlineBind) .. ']')
+                        self.indicatorValue:SetEnabled(self.state)
+                    end
+                end
+            end
+            utility:Connection(toggle.objects.holder.MouseButton2Down, function()
+                if toggle.inlineBinding then
+                    toggle.inlineBinding = false
+                    library.inlineBindListenTarget = nil
+                    toggle:RefreshKeybindLabel()
+                    return
+                end
+                if toggle.inlineBind ~= 'none' then
+                    toggle:SetInlineBind('none')
+                    return
+                end
+                if library.inlineBindListenTarget then
+                    local prev = library.inlineBindListenTarget
+                    if prev ~= toggle and prev.inlineBinding then
+                        prev.inlineBinding = false
+                        if prev.RefreshKeybindLabel then
+                            prev:RefreshKeybindLabel()
+                        end
+                    end
+                end
+                library.inlineBindListenTarget = toggle
+                toggle.inlineBinding = true
+                toggle:RefreshKeybindLabel()
+            end)
+            utility:Connection(inputservice.InputBegan, function(inp, gpe)
+                if gpe or inputservice:GetFocusedTextBox() then
+                    return
+                end
+                if toggle.keybind and toggle.inlineBinding and library.inlineBindListenTarget == toggle then
+                    if inp.KeyCode == Enum.KeyCode.Escape then
+                        toggle.inlineBinding = false
+                        library.inlineBindListenTarget = nil
+                        toggle:RefreshKeybindLabel()
+                        return
+                    end
+                    local key = (
+                            table.find({
+                                Enum.UserInputType.MouseButton1,
+                                Enum.UserInputType.MouseButton2,
+                                Enum.UserInputType.MouseButton3,
+                            }, inp.UserInputType)
+                            and not toggle.keybindNomouse
+                        )
+                        and inp.UserInputType
+                    key = key or (not table.find(blacklistedKeys, inp.KeyCode) and inp.KeyCode)
+                    if key then
+                        toggle:SetInlineBind(key == Enum.KeyCode.Backspace and 'none' or key)
+                        toggle.inlineBinding = false
+                        library.inlineBindListenTarget = nil
+                    end
+                    return
+                end
+                if toggle.keybind and toggle.inlineBind ~= 'none' and not toggle.inlineBinding then
+                    if inp.KeyCode == toggle.inlineBind or inp.UserInputType == toggle.inlineBind then
+                        toggle:SetState(not toggle.state)
+                    end
+                end
+            end)
+            toggle:SetInlineBind('none', true)
+        end
+
+        local function attachButtonInlineKeybind(button)
+            if not button.keybind then
+                return
+            end
+            button.indicatorValue = library.keyIndicator:AddValue({
+                key = button.baseText,
+                value = '[—]',
+                enabled = false,
+            })
+            function button:RefreshKeybindLabel()
+                local suffix = ''
+                if self.inlineBinding then
+                    suffix = ' [...]'
+                elseif self.inlineBind ~= 'none' then
+                    suffix = ' [' .. formatInlineKeyDisplay(self.inlineBind) .. ']'
+                end
+                self.objects.text.Text = self.baseText .. suffix
+            end
+            function button:SetInlineBind(keybind, nocallback)
+                if keybind == Enum.KeyCode.Backspace then
+                    keybind = 'none'
+                end
+                self.inlineBind = keybind or 'none'
+                self:RefreshKeybindLabel()
+                if self.indicatorValue then
+                    if self.inlineBind == 'none' then
+                        self.indicatorValue:SetEnabled(false)
+                        self.indicatorValue:SetValue('[—]')
+                    else
+                        self.indicatorValue:SetKey(self.baseText)
+                        self.indicatorValue:SetValue('[' .. formatInlineKeyDisplay(self.inlineBind) .. ']')
+                        self.indicatorValue:SetEnabled(true)
+                    end
+                end
+            end
+            utility:Connection(button.objects.holder.MouseButton2Down, function()
+                if button.inlineBinding then
+                    button.inlineBinding = false
+                    library.inlineBindListenTarget = nil
+                    button:RefreshKeybindLabel()
+                    return
+                end
+                if button.inlineBind ~= 'none' then
+                    button:SetInlineBind('none')
+                    return
+                end
+                if library.inlineBindListenTarget then
+                    local prev = library.inlineBindListenTarget
+                    if prev ~= button and prev.inlineBinding then
+                        prev.inlineBinding = false
+                        if prev.RefreshKeybindLabel then
+                            prev:RefreshKeybindLabel()
+                        end
+                    end
+                end
+                library.inlineBindListenTarget = button
+                button.inlineBinding = true
+                button:RefreshKeybindLabel()
+            end)
+            utility:Connection(inputservice.InputBegan, function(inp, gpe)
+                if gpe or inputservice:GetFocusedTextBox() then
+                    return
+                end
+                if button.keybind and button.inlineBinding and library.inlineBindListenTarget == button then
+                    if inp.KeyCode == Enum.KeyCode.Escape then
+                        button.inlineBinding = false
+                        library.inlineBindListenTarget = nil
+                        button:RefreshKeybindLabel()
+                        return
+                    end
+                    local key = (
+                            table.find({
+                                Enum.UserInputType.MouseButton1,
+                                Enum.UserInputType.MouseButton2,
+                                Enum.UserInputType.MouseButton3,
+                            }, inp.UserInputType)
+                            and not button.keybindNomouse
+                        )
+                        and inp.UserInputType
+                    key = key or (not table.find(blacklistedKeys, inp.KeyCode) and inp.KeyCode)
+                    if key then
+                        button:SetInlineBind(key == Enum.KeyCode.Backspace and 'none' or key)
+                        button.inlineBinding = false
+                        library.inlineBindListenTarget = nil
+                    end
+                    return
+                end
+                if button.keybind and button.inlineBind ~= 'none' and not button.inlineBinding then
+                    if inp.KeyCode == button.inlineBind or inp.UserInputType == button.inlineBind then
+                        task.spawn(button.callback)
+                    end
+                end
+            end)
+            button:SetInlineBind('none', true)
+        end
 
         local visValues = {};
 
@@ -2118,6 +2455,12 @@ function library:init()
                         enabled = true;
                         options = {};
                         objects = {};
+                        keybind = false;
+                        inlineBind = 'none';
+                        inlineBinding = false;
+                        baseText = '';
+                        indicatorValue = nil;
+                        keybindNomouse = false;
                     };
 
                     local blacklist = {'objects'};
@@ -2219,13 +2562,25 @@ function library:init()
                                 self.callback(bool);
                             end
 
+                            if self.keybind and self.indicatorValue and self.inlineBind ~= 'none' then
+                                self.indicatorValue:SetEnabled(bool)
+                            end
+
                         end
                     end
 
                     function toggle:SetText(str)
                         if typeof(str) == 'string' then
+                            self.baseText = str
                             self.text = str;
-                            self.objects.text.Text = str;
+                            if self.keybind and self.RefreshKeybindLabel then
+                                self:RefreshKeybindLabel()
+                            else
+                                self.objects.text.Text = str;
+                            end
+                            if self.indicatorValue and self.inlineBind ~= 'none' then
+                                self.indicatorValue:SetKey(self.baseText)
+                            end
                         end
                     end
 
@@ -2491,7 +2846,7 @@ function library:init()
                                 bind.callback(false);
                             end
                             local keyName = 'NONE'
-                            self.bind = (keybind and keybind) or keybind or self.bind
+                            self.bind = (keybind ~= nil and keybind) or self.bind
                             if self.bind == Enum.KeyCode.Backspace then
                                 self.bind = 'none';
                                 bind.state = true
@@ -2502,7 +2857,7 @@ function library:init()
                                 local display = bind.state; if bind.invertindicator then display = not bind.state; end
                                 bind.indicatorValue:SetEnabled(display and not bind.noindicator);
                             else
-                                keyName = keyNames[keybind] or keybind.Name or keybind
+                                keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
                             end
                             if self.bind ~= 'none' then
                                 bind.state = false
@@ -2538,11 +2893,6 @@ function library:init()
                                 local key = (table.find({Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2, Enum.UserInputType.MouseButton3}, inp.UserInputType) and not bind.nomouse) and inp.UserInputType
                                 bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
                                 bind.binding = false
-                            elseif not bind.binding and self.bind == 'none' then
-                                bind.state = true
-                                library.flags[bind.flag] = bind.state
-                                local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                bind.indicatorValue:SetEnabled(display and not bind.noindicator)
                             elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
                                 if bind.mode == 'toggle' then
                                     bind.state = not bind.state
@@ -2954,8 +3304,10 @@ function library:init()
                     end
 
                     tooltip(toggle);
+                    toggle.baseText = toggle.text
                     toggle:SetText(toggle.text);
                     toggle:SetState(toggle.state, true);
+                    attachToggleInlineKeybind(toggle)
                     self:UpdateOptions();
                     return toggle
                 end
@@ -3217,6 +3569,12 @@ function library:init()
                         risky = false;
                         objects = {};
                         subbuttons = {};
+                        keybind = false;
+                        inlineBind = 'none';
+                        inlineBinding = false;
+                        baseText = '';
+                        indicatorValue = nil;
+                        keybindNomouse = false;
                     };
 
                     local blacklist = {'objects'};
@@ -3315,7 +3673,11 @@ function library:init()
                                     if clicked then
                                         clicked = false
                                         counting = false
-                                        objs.text.Text = button.text
+                                        if button.RefreshKeybindLabel then
+                                            button:RefreshKeybindLabel()
+                                        else
+                                            objs.text.Text = button.text
+                                        end
                                         button.callback()
                                     else
                                         clicked = true
@@ -3329,7 +3691,11 @@ function library:init()
                                         end
                                         clicked = false
                                         counting = false
-                                        objs.text.Text = button.text
+                                        if button.RefreshKeybindLabel then
+                                            button:RefreshKeybindLabel()
+                                        else
+                                            objs.text.Text = button.text
+                                        end
                                     end
                                 else
                                     button.callback()
@@ -3352,6 +3718,12 @@ function library:init()
                             confirm = false;
                             enabled = true;
                             objects = {};
+                            keybind = false;
+                            inlineBind = 'none';
+                            inlineBinding = false;
+                            baseText = '';
+                            indicatorValue = nil;
+                            keybindNomouse = false;
                         };
     
                         local blacklist = {'objects'};
@@ -3450,7 +3822,11 @@ function library:init()
                                         if clicked then
                                             clicked = false
                                             counting = false
-                                            objs.text.Text = button.text
+                                            if button.RefreshKeybindLabel then
+                                                button:RefreshKeybindLabel()
+                                            else
+                                                objs.text.Text = button.text
+                                            end
                                             button.callback()
                                         else
                                             clicked = true
@@ -3464,7 +3840,11 @@ function library:init()
                                             end
                                             clicked = false
                                             counting = false
-                                            objs.text.Text = button.text
+                                            if button.RefreshKeybindLabel then
+                                                button:RefreshKeybindLabel()
+                                            else
+                                                objs.text.Text = button.text
+                                            end
                                         end
                                     else
                                         button.callback()
@@ -3478,13 +3858,23 @@ function library:init()
     
                         function button:SetText(str)
                             if typeof(str) == 'string' then
+                                self.baseText = str
                                 self.text = str;
-                                self.objects.text.Text = str;
+                                if self.keybind and self.RefreshKeybindLabel then
+                                    self:RefreshKeybindLabel()
+                                else
+                                    self.objects.text.Text = str;
+                                end
+                                if self.indicatorValue and self.inlineBind ~= 'none' then
+                                    self.indicatorValue:SetKey(self.baseText)
+                                end
                             end
                         end
     
                         tooltip(button);
+                        button.baseText = button.text
                         button:SetText(button.text);
+                        attachButtonInlineKeybind(button)
                         self:UpdateOptions();
                         return button
                     end
@@ -3502,13 +3892,23 @@ function library:init()
 
                     function button:SetText(str)
                         if typeof(str) == 'string' then
+                            self.baseText = str
                             self.text = str;
-                            self.objects.text.Text = str;
+                            if self.keybind and self.RefreshKeybindLabel then
+                                self:RefreshKeybindLabel()
+                            else
+                                self.objects.text.Text = str;
+                            end
+                            if self.indicatorValue and self.inlineBind ~= 'none' then
+                                self.indicatorValue:SetKey(self.baseText)
+                            end
                         end
                     end
 
                     tooltip(button);
+                    button.baseText = button.text
                     button:SetText(button.text);
+                    attachButtonInlineKeybind(button)
                     self:UpdateOptions();
                     return button
                 end
@@ -3912,7 +4312,7 @@ function library:init()
                         end
                     end
 
-                    local c
+                    local cBeg, cChg
                     local input = box.input;
                     function box:CaptureFocus(clear)
                         box.focused = true
@@ -3922,56 +4322,63 @@ function library:init()
                         end
 
                         self.objects.inputText.ThemeColor = 'Option Text 1';
-                        c = utility:Connection(inputservice.InputBegan, function(inp)
+                        if cBeg then
+                            cBeg:Disconnect()
+                        end
+                        if cChg then
+                            cChg:Disconnect()
+                        end
+
+                        cBeg = utility:Connection(inputservice.InputBegan, function(inp, gpe)
+                            if gpe or not box.focused then
+                                return
+                            end
                             if inp.KeyCode == Enum.KeyCode.Return or inp.UserInputType == Enum.UserInputType.MouseButton1 then
                                 box:ReleaseFocus(true);
                             elseif inp.KeyCode == Enum.KeyCode.Escape then
                                 input = self.input
                                 self.objects.inputText.Text = input;
                                 box:ReleaseFocus();
-                            elseif inp.KeyCode == Enum.KeyCode.Backspace then
-                                input = input:sub(1,-2);
-                                self.objects.inputText.Text = input;
-                            elseif #inp.KeyCode.Name == 1 or table.find(whitelistedBoxKeys, inp.KeyCode) or inp.KeyCode.Name == 'Space' or inp.KeyCode.Name == 'Minus' or inp.KeyCode.Name == 'Equals' or inp.KeyCode.Name == 'Backquote' then
-                                local wlIdx = table.find(whitelistedBoxKeys, inp.KeyCode)
-                                local keyString = inp.KeyCode.Name == 'Space' and ' ' or inp.KeyCode.Name == 'Minus' and '_' or inp.KeyCode.Name == 'Equals' and '+' or inp.KeyCode.Name == 'Backquote' and '~' or wlIdx ~= nil and tostring(wlIdx-1) or inp.KeyCode.Name
-                                if not (inputservice:IsKeyDown(Enum.KeyCode.LeftShift) and not inputservice:IsKeyDown(Enum.KeyCode.RightShift)) then
-                                    keyString = keyString:lower();
-                                    if inp.KeyCode.Name == 'Minus' then
-                                        keyString = '-'
-                                    elseif inp.KeyCode.Name == 'Equals' then
-                                        keyString = '='
-                                    elseif inp.KeyCode.Name == 'Backquote' then
-                                        keyString = '`'
-                                    end
-                                else
-                                    if keyString == '1' then
-                                        keyString = '!'
-                                    elseif keyString == '2' then
-                                        keyString = '@'
-                                    elseif keyString == '3' then
-                                        keyString = '#'
-                                    elseif keyString == '4' then
-                                        keyString = '$'
-                                    elseif keyString == '5' then
-                                        keyString = '%'
-                                    elseif keyString == '6' then
-                                        keyString = '^'
-                                    elseif keyString == '7' then
-                                        keyString = '&'
-                                    elseif keyString == '8' then
-                                        keyString = '*'
-                                    elseif keyString == '9' then
-                                        keyString = '('
-                                    elseif keyString == '0' then
-                                        keyString = ')'
-                                    end
-                                end
-                                input = input..keyString;
-                                self.objects.inputText.Text = input;
                             end
                         end)
 
+                        cChg = utility:Connection(inputservice.InputChanged, function(inp, gpe)
+                            if gpe or not box.focused then
+                                return
+                            end
+                            if inp.UserInputType ~= Enum.UserInputType.Keyboard then
+                                return
+                            end
+                            if inp.UserInputState ~= Enum.UserInputState.Begin then
+                                return
+                            end
+                            -- Repeated backward erase: Backspace only (not Forward Delete / Del).
+                            if inp.KeyCode == Enum.KeyCode.Backspace then
+                                input = input:sub(1, -2)
+                                self.objects.inputText.Text = input
+                                return
+                            end
+                            local ok, ch = pcall(function()
+                                return inputservice:GetStringForKeyCode(inp.KeyCode)
+                            end)
+                            if not ok or typeof(ch) ~= 'string' or ch == '' then
+                                ch = boxKeyFallback[inp.KeyCode]
+                                if ch == nil then
+                                    local kn = inp.KeyCode.Name
+                                    if typeof(kn) == 'string' and #kn == 1 then
+                                        ch = kn
+                                    else
+                                        return
+                                    end
+                                end
+                            end
+                            local byte = string.byte(ch, 1)
+                            if byte and byte < 32 then
+                                return
+                            end
+                            input = input .. ch
+                            self.objects.inputText.Text = input
+                        end)
                     end
 
                     function box:ReleaseFocus(apply)
@@ -3980,7 +4387,14 @@ function library:init()
                         if apply then
                             box:SetInput(input);
                         end
-                        c:Disconnect();
+                        if cBeg then
+                            cBeg:Disconnect()
+                            cBeg = nil
+                        end
+                        if cChg then
+                            cChg:Disconnect()
+                            cChg = nil
+                        end
                     end
 
                     tooltip(box);
@@ -4091,12 +4505,13 @@ function library:init()
                             end
                             bind.callback(false);
                         end
-                        local keyName = 'NONE'
-                        self.bind = (keybind and keybind) or keybind or self.bind
+                        self.bind = (keybind ~= nil and keybind) or self.bind
                         if self.bind == Enum.KeyCode.Backspace then
                             self.bind = 'none';
-                        else
-                            keyName = keyNames[keybind] or keybind.Name or keybind
+                        end
+                        local keyName = 'NONE'
+                        if self.bind ~= 'none' then
+                            keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
                         end
                         self.keycallback(self.bind);
                         self:SetKeyText(keyName:upper());
@@ -4118,9 +4533,6 @@ function library:init()
                             local key = (table.find({Enum.UserInputType.MouseButton1, Enum.UserInputType.MouseButton2, Enum.UserInputType.MouseButton3}, inp.UserInputType) and not bind.nomouse) and inp.UserInputType
                             bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
                             bind.binding = false
-                        elseif not bind.binding and self.bind == 'none' then
-                            bind.state = true
-                            library.flags[bind.flag] = bind.state
                         elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
                             if bind.mode == 'toggle' then
                                 bind.state = not bind.state
@@ -4143,7 +4555,7 @@ function library:init()
 
                     utility:Connection(inputservice.InputEnded, function(inp)
                         if bind.bind ~= 'none' then
-                            if inp.KeyCode == bind.bind or inp.UserInputType == bind.key then
+                            if inp.KeyCode == bind.bind or inp.UserInputType == bind.bind then
                                 if c then
                                     c:Disconnect();
                                     if bind.flag then
@@ -4576,17 +4988,11 @@ function library:init()
     
     -- Watermark
     do
-        if not IonHub_User then
-            getgenv().IonHub_User = {
-                UID = 0, 
-                User = "admin"
-            }
-        end
         self.watermark = {
             objects = {};
             text = {
+                {'PUT2.REST', true},
                 {self.cheatname, true},
-                {("%s (uid %s)"):format(IonHub_User.User, tostring(IonHub_User.UID)), true},
                 {self.gamename, true},
                 {'0 fps', true},
                 {'0ms', true},
@@ -4599,8 +5005,8 @@ function library:init()
         }
 
         function self.watermark:Update()
-            self.objects.background.Visible = library.flags.watermark_enabled
-            if library.flags.watermark_enabled then
+            self.objects.background.Visible = library.flags.watermark_enabled == true
+            if library.flags.watermark_enabled == true then
                 local date = {os.date('%b',os.time()), os.date('%d',os.time()), os.date('%Y',os.time())}
                 local daySuffix = math.floor(date[2]%10)
                 date[2] = date[2]..(daySuffix == 1 and 'st' or daySuffix == 2 and 'nd' or daySuffix == 3 and 'rd' or 'th')
@@ -4754,7 +5160,7 @@ function library:CreateSettingsTab(menu)
 
     refreshConfigs()
 
-    mainSection:AddBind({text = 'Open / Close', flag = 'togglebind', nomouse = true, noindicator = true, bind = Enum.KeyCode.End, callback = function()
+    mainSection:AddBind({text = 'Open / Close', flag = 'togglebind', nomouse = true, noindicator = true, bind = Enum.KeyCode.RightShift, callback = function()
         library:SetOpen(not library.open)
     end});
 
