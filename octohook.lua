@@ -5486,6 +5486,28 @@ function library:CreateSettingsTab(menu)
         end
     end)
 
+    -- If the togglebind key is currently held while the UI is created (common when executing),
+    -- ignore it until it is released so the menu doesn't instantly close after opening.
+    pcall(function()
+        local key = Enum.KeyCode.RightShift
+        if openCloseBind and openCloseBind.bind ~= nil and openCloseBind.bind ~= 'none' then
+            key = openCloseBind.bind
+        end
+        library.opening = true
+        task.spawn(function()
+            local t0 = tick()
+            while tick() - t0 < 2 do
+                if typeof(key) == 'EnumItem' and inputservice:IsKeyDown(key) then
+                    task.wait()
+                else
+                    break
+                end
+            end
+            task.wait(.05)
+            library.opening = false
+        end)
+    end)
+
     mainSection:AddToggle({text = 'Disable Movement If Open', flag = 'disablemenumovement', callback = function(bool)
         if bool and library.open then
             actionservice:BindAction(
