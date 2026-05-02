@@ -441,7 +441,7 @@ function library:formatKeyIndicatorRow(opt)
 		local nm = rowName(opt)
 		if detailed then
 			local on = opt.state
-			local sym = on and '[✔]' or '[✕]'
+			local sym = on and '[T]' or '[F]'
 			iv:SetKey(sym .. ' ' .. nm)
 			iv:SetValue(kt)
 		else
@@ -460,7 +460,7 @@ function library:formatKeyIndicatorRow(opt)
 		local kt = opt.inlineBinding and '[...]' or keyTag(opt.inlineBind)
 		local nm = rowName(opt)
 		if detailed then
-			iv:SetKey('[○] ' .. nm)
+			iv:SetKey('[O] ' .. nm)
 			iv:SetValue(kt)
 		else
 			iv:SetKey(nm)
@@ -478,7 +478,7 @@ function library:formatKeyIndicatorRow(opt)
 			end
 			iv:SetEnabled(display)
 			if detailed then
-				local sym = opt.mode == 'hold' and '[○]' or (display and '[✔]' or '[✕]')
+				local sym = opt.mode == 'hold' and '[O]' or (display and '[T]' or '[F]')
 				iv:SetKey(sym .. ' ' .. nm)
 				iv:SetValue('[Always]')
 			else
@@ -490,13 +490,13 @@ function library:formatKeyIndicatorRow(opt)
 		iv:SetEnabled(true)
 		local kt = keyTag(opt.bind)
 		if detailed then
-			local sym = '[○]'
+			local sym = '[O]'
 			if opt.mode == 'toggle' then
 				local on = opt.state
 				if opt.invertindicator then
 					on = not on
 				end
-				sym = on and '[✔]' or '[✕]'
+				sym = on and '[T]' or '[F]'
 			end
 			iv:SetKey(sym .. ' ' .. nm)
 			iv:SetValue(kt)
@@ -2653,12 +2653,32 @@ function library:init()
                             Parent = objs.holder;
                         })
 
+                        objs.keybindHint = nil;
+                        if toggle.keybind then
+                            objs.keybindHint = utility:Draw('Text', {
+                                Position = newUDim2(1,-36,0,5);
+                                ThemeColor = 'Accent';
+                                Size = 11;
+                                Font = 2;
+                                ZIndex = z+9;
+                                Outline = true;
+                                Text = 'RMB';
+                                Parent = objs.holder;
+                            })
+                        end
+
                         utility:Connection(objs.holder.MouseEnter, function()
                             objs.border1.ThemeColor = 'Accent';
+                            if objs.keybindHint then
+                                objs.keybindHint.ThemeColor = 'Primary Text';
+                            end
                         end)
 
                         utility:Connection(objs.holder.MouseLeave, function()
                             objs.border1.ThemeColor = toggle.state and 'Accent' or 'Option Border 1';
+                            if objs.keybindHint then
+                                objs.keybindHint.ThemeColor = 'Accent';
+                            end
                         end)
 
                         utility:Connection(objs.holder.MouseButton1Down, function()
@@ -2936,13 +2956,26 @@ function library:init()
                                 ZIndex = z+1;
                                 Parent = objs.holder;
                             })
+
+                            objs.clickBindHint = utility:Draw('Text', {
+                                Position = newUDim2(0,2,0,2);
+                                ThemeColor = 'Accent';
+                                Size = 11;
+                                Font = 2;
+                                ZIndex = z+2;
+                                Outline = true;
+                                Text = 'LMB';
+                                Parent = objs.holder;
+                            })
     
                             utility:Connection(objs.holder.MouseEnter, function()
                                 objs.keyText.ThemeColor = 'Accent';
+                                objs.clickBindHint.ThemeColor = 'Primary Text';
                             end)
     
                             utility:Connection(objs.holder.MouseLeave, function()
                                 objs.keyText.ThemeColor = bind.binding and 'Accent' or 'Option Text 3';
+                                objs.clickBindHint.ThemeColor = 'Accent';
                             end)
     
                             utility:Connection(objs.holder.MouseButton1Down, function()
@@ -2992,8 +3025,12 @@ function library:init()
                         function bind:SetKeyText(str)
                             str = tostring(str);
                             self.objects.keyText.Text = '['..str..']';
-                            self.objects.keyText.Position = newUDim2(0, 2, 0, 2);
-                            self.objects.holder.Size = newUDim2(0,self.objects.keyText.TextBounds.X+2,0,17)
+                            local hint = self.objects.clickBindHint
+                            local hx = hint and hint.TextBounds.X > 1 and hint.TextBounds.X or 26
+                            local gap = hint and 6 or 0
+                            local xPad = hx + gap + 2
+                            self.objects.keyText.Position = newUDim2(0, xPad, 0, 2);
+                            self.objects.holder.Size = newUDim2(0, xPad + self.objects.keyText.TextBounds.X + 2, 0, 17)
                             toggle:UpdateOptions();
                         end
     
@@ -3756,8 +3793,25 @@ function library:init()
                             Parent = objs.background;
                         })
 
+                        objs.keybindHint = nil;
+                        if button.keybind then
+                            objs.keybindHint = utility:Draw('Text', {
+                                Position = newUDim2(1,-38,0,8);
+                                ThemeColor = 'Accent';
+                                Size = 11;
+                                Font = 2;
+                                ZIndex = z+8;
+                                Outline = true;
+                                Text = 'RMB';
+                                Parent = objs.holder;
+                            })
+                        end
+
                         utility:Connection(objs.holder.MouseEnter, function()
                             objs.border1.ThemeColor = 'Accent';
+                            if objs.keybindHint then
+                                objs.keybindHint.ThemeColor = 'Primary Text';
+                            end
                         end)
 
                         utility:Connection(objs.holder.MouseLeave, function()
@@ -3765,6 +3819,9 @@ function library:init()
                             objs.text.ThemeColor = self.risky and 'Risky Text' or 'Option Text 3';
                             objs.background.ThemeColor = 'Option Background';
                             objs.background.ThemeColorOffset = 0;
+                            if objs.keybindHint then
+                                objs.keybindHint.ThemeColor = 'Accent';
+                            end
                         end)
 
                         utility:Connection(objs.holder.MouseButton1Up, function()
@@ -3905,8 +3962,25 @@ function library:init()
                                 Parent = objs.background;
                             })
     
+                            objs.keybindHint = nil;
+                            if button.keybind then
+                                objs.keybindHint = utility:Draw('Text', {
+                                    Position = newUDim2(1,-38,0,8);
+                                    ThemeColor = 'Accent';
+                                    Size = 11;
+                                    Font = 2;
+                                    ZIndex = z+8;
+                                    Outline = true;
+                                    Text = 'RMB';
+                                    Parent = objs.holder;
+                                })
+                            end
+    
                             utility:Connection(objs.holder.MouseEnter, function()
                                 objs.border1.ThemeColor = 'Accent';
+                                if objs.keybindHint then
+                                    objs.keybindHint.ThemeColor = 'Primary Text';
+                                end
                             end)
     
                             utility:Connection(objs.holder.MouseLeave, function()
@@ -3914,6 +3988,9 @@ function library:init()
                                 objs.text.ThemeColor = self.risky and 'Risky Text' or 'Option Text 3';
                                 objs.background.ThemeColor = 'Option Background';
                                 objs.background.ThemeColorOffset = 0;
+                                if objs.keybindHint then
+                                    objs.keybindHint.ThemeColor = 'Accent';
+                                end
                             end)
     
                             utility:Connection(objs.holder.MouseButton1Up, function()
@@ -4593,12 +4670,32 @@ function library:init()
                             Parent = objs.holder;
                         })
 
+                        objs.clickBindHint = utility:Draw('Text', {
+                            Position = newUDim2(1,-68,0,4);
+                            ThemeColor = 'Accent';
+                            Size = 11;
+                            Font = 2;
+                            ZIndex = z+2;
+                            Outline = true;
+                            Text = 'LMB';
+                            Parent = objs.holder;
+                        })
+                        if bind.noindicator then
+                            objs.clickBindHint.Visible = false
+                        end
+
                         utility:Connection(objs.holder.MouseEnter, function()
                             objs.keyText.ThemeColor = 'Accent';
+                            if objs.clickBindHint.Visible then
+                                objs.clickBindHint.ThemeColor = 'Primary Text';
+                            end
                         end)
 
                         utility:Connection(objs.holder.MouseLeave, function()
                             objs.keyText.ThemeColor = bind.binding and 'Accent' or 'Option Text 3';
+                            if objs.clickBindHint.Visible then
+                                objs.clickBindHint.ThemeColor = 'Accent';
+                            end
                         end)
 
                         utility:Connection(objs.holder.MouseButton1Down, function()
@@ -5372,7 +5469,7 @@ function library:CreateSettingsTab(menu)
     mainSection:AddToggle({text = 'Keybind Indicator', flag = 'keybind_indicator', callback = function(bool)
         library.keyIndicator:SetEnabled(bool);
     end})
-    mainSection:AddToggle({text = 'Detailed Keybind Indicator', tooltip = '[✔]/[✕]/[○] prefix + key', flag = 'keybind_indicator_detailed', callback = function()
+    mainSection:AddToggle({text = 'Detailed Keybind Indicator', tooltip = '[T] on / [F] off / [O] bind or hold', flag = 'keybind_indicator_detailed', callback = function()
         library:refreshKeybindIndicatorRows();
     end})
     mainSection:AddSlider({text = 'Position X', flag = 'keybind_indicator_x', min = 0, max = 100, increment = .1, value = .5, callback = function()
