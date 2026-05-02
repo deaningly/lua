@@ -2196,7 +2196,7 @@ function library:init()
             function toggle:RefreshKeybindLabel()
                 local suffix = ''
                 if self.inlineBinding then
-                    suffix = ' [...]'
+                    suffix = ''
                 elseif self.inlineBind ~= 'none' then
                     suffix = ' [' .. formatInlineKeyDisplay(self.inlineBind) .. ']'
                 end
@@ -2301,7 +2301,7 @@ function library:init()
             function button:RefreshKeybindLabel()
                 local suffix = ''
                 if self.inlineBinding then
-                    suffix = ' [...]'
+                    suffix = ''
                 elseif self.inlineBind ~= 'none' then
                     suffix = ' [' .. formatInlineKeyDisplay(self.inlineBind) .. ']'
                 end
@@ -3032,6 +3032,7 @@ function library:init()
                                     library.flags[bind.flag] = bind.state;
                                 end
                                 self.callback(true)
+                                keyName = ''
                             else
                                 keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
                             end
@@ -3050,7 +3051,11 @@ function library:init()
     
                         function bind:SetKeyText(str)
                             str = tostring(str);
-                            self.objects.keyText.Text = '['..str..']';
+                            if str == '' then
+                                self.objects.keyText.Text = '';
+                            else
+                                self.objects.keyText.Text = '['..str..']';
+                            end
                             local hint = self.objects.clickBindHint
                             if hint then
                                 if str == '...' then
@@ -3080,6 +3085,9 @@ function library:init()
                                 bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
                                 bind.binding = false
                             elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
+                                if library.opening then
+                                    return
+                                end
                                 if bind.mode == 'toggle' then
                                     bind.state = not bind.state
                                     if bind.flag then
@@ -4761,6 +4769,7 @@ function library:init()
                                 library.flags[bind.flag] = bind.state;
                             end
                             self.callback(true)
+                            keyName = ''
                         else
                             keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
                         end
@@ -4779,7 +4788,11 @@ function library:init()
 
                     function bind:SetKeyText(str)
                         str = tostring(str);
-                        self.objects.keyText.Text = '['..str..']';
+                        if str == '' then
+                            self.objects.keyText.Text = '';
+                        else
+                            self.objects.keyText.Text = '['..str..']';
+                        end
                         local kw = self.objects.keyText.TextBounds.X
                         self.objects.keyText.Position = newUDim2(1, -kw, 0, 2);
                         local h = self.objects.clickBindHint
@@ -4808,6 +4821,9 @@ function library:init()
                             bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
                             bind.binding = false
                         elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
+                            if library.opening then
+                                return
+                            end
                             if bind.mode == 'toggle' then
                                 bind.state = not bind.state
                                 if bind.flag then
@@ -5389,7 +5405,11 @@ function library:init()
     self.targetTool = self.targetIndicator:AddValue({key = 'Weapon   :', value = 'nil'})
 
     self:SetTheme(library.theme);
+    library.opening = true
     self:SetOpen(true);
+    task.delay(.25, function()
+        library.opening = false
+    end)
     self.hasInit = true
 
 end
