@@ -3085,9 +3085,6 @@ function library:init()
                                 bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
                                 bind.binding = false
                             elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
-                                if library.opening then
-                                    return
-                                end
                                 if bind.mode == 'toggle' then
                                     bind.state = not bind.state
                                     if bind.flag then
@@ -4821,9 +4818,6 @@ function library:init()
                             bind:SetBind(key or (not table.find(blacklistedKeys, inp.KeyCode)) and inp.KeyCode)
                             bind.binding = false
                         elseif (inp.KeyCode == bind.bind or inp.UserInputType == bind.bind) and not bind.binding then
-                            if library.opening then
-                                return
-                            end
                             if bind.mode == 'toggle' then
                                 bind.state = not bind.state
                                 if bind.flag then
@@ -5405,11 +5399,7 @@ function library:init()
     self.targetTool = self.targetIndicator:AddValue({key = 'Weapon   :', value = 'nil'})
 
     self:SetTheme(library.theme);
-    library.opening = true
     self:SetOpen(true);
-    task.delay(.25, function()
-        library.opening = false
-    end)
     self.hasInit = true
 
 end
@@ -5484,28 +5474,6 @@ function library:CreateSettingsTab(menu)
         if library.flags then
             library.flags.togglebind = Enum.KeyCode.RightShift
         end
-    end)
-
-    -- If the togglebind key is currently held while the UI is created (common when executing),
-    -- ignore it until it is released so the menu doesn't instantly close after opening.
-    pcall(function()
-        local key = Enum.KeyCode.RightShift
-        if openCloseBind and openCloseBind.bind ~= nil and openCloseBind.bind ~= 'none' then
-            key = openCloseBind.bind
-        end
-        library.opening = true
-        task.spawn(function()
-            local t0 = tick()
-            while tick() - t0 < 2 do
-                if typeof(key) == 'EnumItem' and inputservice:IsKeyDown(key) then
-                    task.wait()
-                else
-                    break
-                end
-            end
-            task.wait(.05)
-            library.opening = false
-        end)
     end)
 
     mainSection:AddToggle({text = 'Disable Movement If Open', flag = 'disablemenumovement', callback = function(bool)
