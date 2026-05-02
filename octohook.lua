@@ -382,6 +382,131 @@ local function formatInlineKeyDisplay(keybind)
 	return tostring(keybind)
 end
 
+function library:refreshKeybindIndicatorRows()
+	if self.keyIndicator == nil then
+		return
+	end
+	for _, opt in next, self.options do
+		if type(opt) == 'table' and opt.indicatorValue and not opt.noindicator then
+			if (opt.class == 'toggle' and opt.keybind) or (opt.class == 'button' and opt.keybind) or opt.class == 'bind' then
+				self:formatKeyIndicatorRow(opt)
+			end
+		end
+	end
+	self.keyIndicator:Update()
+end
+
+function library:formatKeyIndicatorRow(opt)
+	if opt == nil or opt.indicatorValue == nil then
+		return
+	end
+	local iv = opt.indicatorValue
+	if opt.noindicator then
+		iv:SetEnabled(false)
+		return
+	end
+	local detailed = library.flags.keybind_indicator_detailed == true
+
+	local function rowName(o)
+		if o.class == 'toggle' or o.class == 'button' then
+			return o.baseText or o.text or o.flag or o.class
+		end
+		if o.text ~= nil and o.text ~= '' then
+			return o.text
+		end
+		return o.flag or 'bind'
+	end
+
+	local function keyTag(b)
+		if b == nil or b == 'none' then
+			return '[—]'
+		end
+		local s = formatInlineKeyDisplay(b)
+		if s == '' and typeof(b) == 'EnumItem' then
+			s = b.Name
+		end
+		if s == '' then
+			s = tostring(b)
+		end
+		return '[' .. string.upper(s) .. ']'
+	end
+
+	if opt.class == 'toggle' and opt.keybind then
+		if opt.inlineBind == 'none' then
+			iv:SetEnabled(false)
+			return
+		end
+		iv:SetEnabled(true)
+		local kt = opt.inlineBinding and '[...]' or keyTag(opt.inlineBind)
+		local nm = rowName(opt)
+		if detailed then
+			local on = opt.state
+			local sym = on and '[✔]' or '[✕]'
+			iv:SetKey(sym .. ' ' .. nm)
+			iv:SetValue(kt)
+		else
+			iv:SetKey(nm)
+			iv:SetValue(kt)
+		end
+		return
+	end
+
+	if opt.class == 'button' and opt.keybind then
+		if opt.inlineBind == 'none' then
+			iv:SetEnabled(false)
+			return
+		end
+		iv:SetEnabled(true)
+		local kt = opt.inlineBinding and '[...]' or keyTag(opt.inlineBind)
+		local nm = rowName(opt)
+		if detailed then
+			iv:SetKey('[○] ' .. nm)
+			iv:SetValue(kt)
+		else
+			iv:SetKey(nm)
+			iv:SetValue(kt)
+		end
+		return
+	end
+
+	if opt.class == 'bind' then
+		local nm = rowName(opt)
+		if opt.bind == 'none' then
+			local display = opt.state
+			if opt.invertindicator then
+				display = not display
+			end
+			iv:SetEnabled(display)
+			if detailed then
+				local sym = opt.mode == 'hold' and '[○]' or (display and '[✔]' or '[✕]')
+				iv:SetKey(sym .. ' ' .. nm)
+				iv:SetValue('[Always]')
+			else
+				iv:SetKey(nm)
+				iv:SetValue('[Always]')
+			end
+			return
+		end
+		iv:SetEnabled(true)
+		local kt = keyTag(opt.bind)
+		if detailed then
+			local sym = '[○]'
+			if opt.mode == 'toggle' then
+				local on = opt.state
+				if opt.invertindicator then
+					on = not on
+				end
+				sym = on and '[✔]' or '[✕]'
+			end
+			iv:SetKey(sym .. ' ' .. nm)
+			iv:SetValue(kt)
+		else
+			iv:SetKey(nm)
+			iv:SetValue(kt)
+		end
+	end
+end
+
 -- Fallback when GetStringForKeyCode is missing or returns nothing (unshifted symbols only).
 local boxKeyFallback = {
 	[Enum.KeyCode.Comma] = ',';
@@ -793,6 +918,7 @@ function library:init()
                 end
             end
             setByConfig = false
+            library:refreshKeybindIndicatorRows()
         end)
 
         if s then
@@ -2071,27 +2197,20 @@ function library:init()
                 self.objects.text.Text = self.baseText .. suffix
             end
             function toggle:SetInlineBind(keybind, nocallback)
+                self.inlineBinding = false
                 if keybind == Enum.KeyCode.Backspace then
                     keybind = 'none'
                 end
                 self.inlineBind = keybind or 'none'
                 self:RefreshKeybindLabel()
-                if self.indicatorValue then
-                    if self.inlineBind == 'none' then
-                        self.indicatorValue:SetEnabled(false)
-                        self.indicatorValue:SetValue('[—]')
-                    else
-                        self.indicatorValue:SetKey(self.baseText)
-                        self.indicatorValue:SetValue('[' .. formatInlineKeyDisplay(self.inlineBind) .. ']')
-                        self.indicatorValue:SetEnabled(self.state)
-                    end
-                end
+                library:formatKeyIndicatorRow(self)
             end
             utility:Connection(toggle.objects.holder.MouseButton2Down, function()
                 if toggle.inlineBinding then
                     toggle.inlineBinding = false
                     library.inlineBindListenTarget = nil
                     toggle:RefreshKeybindLabel()
+                    library:formatKeyIndicatorRow(toggle)
                     return
                 end
                 if toggle.inlineBind ~= 'none' then
@@ -2105,11 +2224,13 @@ function library:init()
                         if prev.RefreshKeybindLabel then
                             prev:RefreshKeybindLabel()
                         end
+                        library:formatKeyIndicatorRow(prev)
                     end
                 end
                 library.inlineBindListenTarget = toggle
                 toggle.inlineBinding = true
                 toggle:RefreshKeybindLabel()
+                library:formatKeyIndicatorRow(toggle)
             end)
             utility:Connection(inputservice.InputBegan, function(inp, gpe)
                 if gpe or inputservice:GetFocusedTextBox() then
@@ -2120,6 +2241,7 @@ function library:init()
                         toggle.inlineBinding = false
                         library.inlineBindListenTarget = nil
                         toggle:RefreshKeybindLabel()
+                        library:formatKeyIndicatorRow(toggle)
                         return
                     end
                     local key = (
@@ -2133,9 +2255,8 @@ function library:init()
                         and inp.UserInputType
                     key = key or (not table.find(blacklistedKeys, inp.KeyCode) and inp.KeyCode)
                     if key then
-                        toggle:SetInlineBind(key == Enum.KeyCode.Backspace and 'none' or key)
-                        toggle.inlineBinding = false
                         library.inlineBindListenTarget = nil
+                        toggle:SetInlineBind(key == Enum.KeyCode.Backspace and 'none' or key)
                     end
                     return
                 end
@@ -2167,27 +2288,20 @@ function library:init()
                 self.objects.text.Text = self.baseText .. suffix
             end
             function button:SetInlineBind(keybind, nocallback)
+                self.inlineBinding = false
                 if keybind == Enum.KeyCode.Backspace then
                     keybind = 'none'
                 end
                 self.inlineBind = keybind or 'none'
                 self:RefreshKeybindLabel()
-                if self.indicatorValue then
-                    if self.inlineBind == 'none' then
-                        self.indicatorValue:SetEnabled(false)
-                        self.indicatorValue:SetValue('[—]')
-                    else
-                        self.indicatorValue:SetKey(self.baseText)
-                        self.indicatorValue:SetValue('[' .. formatInlineKeyDisplay(self.inlineBind) .. ']')
-                        self.indicatorValue:SetEnabled(true)
-                    end
-                end
+                library:formatKeyIndicatorRow(self)
             end
             utility:Connection(button.objects.holder.MouseButton2Down, function()
                 if button.inlineBinding then
                     button.inlineBinding = false
                     library.inlineBindListenTarget = nil
                     button:RefreshKeybindLabel()
+                    library:formatKeyIndicatorRow(button)
                     return
                 end
                 if button.inlineBind ~= 'none' then
@@ -2201,11 +2315,13 @@ function library:init()
                         if prev.RefreshKeybindLabel then
                             prev:RefreshKeybindLabel()
                         end
+                        library:formatKeyIndicatorRow(prev)
                     end
                 end
                 library.inlineBindListenTarget = button
                 button.inlineBinding = true
                 button:RefreshKeybindLabel()
+                library:formatKeyIndicatorRow(button)
             end)
             utility:Connection(inputservice.InputBegan, function(inp, gpe)
                 if gpe or inputservice:GetFocusedTextBox() then
@@ -2216,6 +2332,7 @@ function library:init()
                         button.inlineBinding = false
                         library.inlineBindListenTarget = nil
                         button:RefreshKeybindLabel()
+                        library:formatKeyIndicatorRow(button)
                         return
                     end
                     local key = (
@@ -2229,9 +2346,8 @@ function library:init()
                         and inp.UserInputType
                     key = key or (not table.find(blacklistedKeys, inp.KeyCode) and inp.KeyCode)
                     if key then
-                        button:SetInlineBind(key == Enum.KeyCode.Backspace and 'none' or key)
-                        button.inlineBinding = false
                         library.inlineBindListenTarget = nil
+                        button:SetInlineBind(key == Enum.KeyCode.Backspace and 'none' or key)
                     end
                     return
                 end
@@ -2568,8 +2684,8 @@ function library:init()
                                 self.callback(bool);
                             end
 
-                            if self.keybind and self.indicatorValue and self.inlineBind ~= 'none' then
-                                self.indicatorValue:SetEnabled(bool)
+                            if self.keybind then
+                                library:formatKeyIndicatorRow(self)
                             end
 
                         end
@@ -2584,8 +2700,8 @@ function library:init()
                             else
                                 self.objects.text.Text = str;
                             end
-                            if self.indicatorValue and self.inlineBind ~= 'none' then
-                                self.indicatorValue:SetKey(self.baseText)
+                            if self.keybind then
+                                library:formatKeyIndicatorRow(self)
                             end
                         end
                     end
@@ -2798,10 +2914,7 @@ function library:init()
                                 library.flags[bind.flag] = bind.state;
                             end
                             bind.callback(true)
-                            local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                            bind.indicatorValue:SetEnabled(display and not bind.noindicator);
-                            bind.indicatorValue:SetKey((bind.text == nil or bind.text == '') and (bind.flag == nil and 'unknown' or bind.flag) or bind.text); -- this is so dumb
-                            bind.indicatorValue:SetValue('[Always]');
+                            library:formatKeyIndicatorRow(bind)
                         end
     
                         --- Create Objects ---
@@ -2860,8 +2973,6 @@ function library:init()
                                     library.flags[bind.flag] = bind.state;
                                 end
                                 self.callback(true)
-                                local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                bind.indicatorValue:SetEnabled(display and not bind.noindicator);
                             else
                                 keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
                             end
@@ -2871,16 +2982,10 @@ function library:init()
                                     library.flags[bind.flag] = bind.state;
                                 end
                                 self.callback(false)
-                                local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                bind.indicatorValue:SetEnabled(display and not bind.noindicator);
                             end
                             self.keycallback(self.bind);
                             self:SetKeyText(keyName:upper());
-                            self.indicatorValue:SetKey((self.text == nil or self.text == '') and (self.flag == nil and 'unknown' or self.flag) or self.text); -- this is so dumb
-                            self.indicatorValue:SetValue('['..keyName:upper()..']');
-                            if self.bind == 'none' then
-                                self.indicatorValue:SetValue('[Always]');
-                            end
+                            library:formatKeyIndicatorRow(bind)
                             self.objects.keyText.ThemeColor = self.objects.holder.Hover and 'Accent' or 'Option Text 3';
                         end
     
@@ -2906,13 +3011,12 @@ function library:init()
                                         library.flags[bind.flag] = bind.state;
                                     end
                                     bind.callback(bind.state)
-                                    local display = bind.state; if bind.invertindicator then display = not bind.state; end
-                                    bind.indicatorValue:SetEnabled(display and not bind.noindicator);
+                                    library:formatKeyIndicatorRow(bind)
                                 elseif bind.mode == 'hold' then
                                     if bind.flag then
                                         library.flags[bind.flag] = true;
                                     end
-                                    bind.indicatorValue:SetEnabled((not bind.invertindicator and true or false) and not bind.noindicator);
+                                    library:formatKeyIndicatorRow(bind)
                                     c = utility:Connection(runservice.RenderStepped, function()
                                         if bind.callback then
                                             bind.callback(true);
@@ -2933,7 +3037,7 @@ function library:init()
                                         if bind.callback then
                                             bind.callback(false);
                                         end
-                                        bind.indicatorValue:SetEnabled(bind.invertindicator and true or false);
+                                        library:formatKeyIndicatorRow(bind)
                                     end
                                 end
                             end
@@ -3872,8 +3976,8 @@ function library:init()
                                 else
                                     self.objects.text.Text = str;
                                 end
-                                if self.indicatorValue and self.inlineBind ~= 'none' then
-                                    self.indicatorValue:SetKey(self.baseText)
+                                if self.keybind then
+                                    library:formatKeyIndicatorRow(self)
                                 end
                             end
                         end
@@ -3906,8 +4010,8 @@ function library:init()
                             else
                                 self.objects.text.Text = str;
                             end
-                            if self.indicatorValue and self.inlineBind ~= 'none' then
-                                self.indicatorValue:SetKey(self.baseText)
+                            if self.keybind then
+                                library:formatKeyIndicatorRow(self)
                             end
                         end
                     end
@@ -4337,7 +4441,7 @@ function library:init()
                         end
 
                         cBeg = utility:Connection(inputservice.InputBegan, function(inp, gpe)
-                            if gpe or not box.focused then
+                            if not box.focused then
                                 return
                             end
                             if inp.KeyCode == Enum.KeyCode.Return or inp.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -4350,19 +4454,22 @@ function library:init()
                         end)
 
                         cChg = utility:Connection(inputservice.InputChanged, function(inp, gpe)
-                            if gpe or not box.focused then
+                            if not box.focused then
                                 return
                             end
                             if inp.UserInputType ~= Enum.UserInputType.Keyboard then
                                 return
                             end
-                            if inp.UserInputState ~= Enum.UserInputState.Begin then
-                                return
-                            end
                             -- Repeated backward erase: Backspace only (not Forward Delete / Del).
                             if inp.KeyCode == Enum.KeyCode.Backspace then
+                                if inp.UserInputState ~= Enum.UserInputState.Begin and inp.UserInputState ~= Enum.UserInputState.Repeat then
+                                    return
+                                end
                                 input = input:sub(1, -2)
                                 self.objects.inputText.Text = input
+                                return
+                            end
+                            if inp.UserInputState ~= Enum.UserInputState.Begin and inp.UserInputState ~= Enum.UserInputState.Repeat then
                                 return
                             end
                             local ok, ch = pcall(function()
@@ -4425,6 +4532,7 @@ function library:init()
                         keycallback = function() end;
                         indicatorValue = library.keyIndicator:AddValue({value = 'value', key = 'key', enabled = false});
                         noindicator = false;
+                        invertindicator = false;
                         state = false;
                         nomouse = false;
                         enabled = true;
@@ -4444,6 +4552,15 @@ function library:init()
 
                     if bind.flag then
                         library.options[bind.flag] = bind;
+                    end
+
+                    if bind.bind == 'none' then
+                        bind.state = true
+                        if bind.flag then
+                            library.flags[bind.flag] = bind.state;
+                        end
+                        bind.callback(true)
+                        library:formatKeyIndicatorRow(bind)
                     end
 
                     --- Create Objects ---
@@ -4500,7 +4617,7 @@ function library:init()
                         if typeof(str) == 'string' then
                             self.text = str;
                             self.objects.text.Text = str;
-                            self.indicatorValue:SetKey(str);
+                            library:formatKeyIndicatorRow(bind)
                         end
                     end
 
@@ -4512,18 +4629,28 @@ function library:init()
                             end
                             bind.callback(false);
                         end
+                        local keyName = 'NONE'
                         self.bind = (keybind ~= nil and keybind) or self.bind
                         if self.bind == Enum.KeyCode.Backspace then
                             self.bind = 'none';
-                        end
-                        local keyName = 'NONE'
-                        if self.bind ~= 'none' then
+                            bind.state = true
+                            if bind.flag then
+                                library.flags[bind.flag] = bind.state;
+                            end
+                            self.callback(true)
+                        else
                             keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
+                        end
+                        if self.bind ~= 'none' then
+                            bind.state = false
+                            if bind.flag then
+                                library.flags[bind.flag] = bind.state;
+                            end
+                            self.callback(false)
                         end
                         self.keycallback(self.bind);
                         self:SetKeyText(keyName:upper());
-                        self.indicatorValue:SetKey((self.text == nil or self.text == '') and (self.flag == nil and 'unknown' or self.flag) or self.text); -- this is so dumb
-                        self.indicatorValue:SetValue('['..keyName:upper()..']');
+                        library:formatKeyIndicatorRow(bind)
                         self.objects.keyText.ThemeColor = self.objects.holder.Hover and 'Accent' or 'Option Text 3';
                     end
 
@@ -4547,12 +4674,12 @@ function library:init()
                                     library.flags[bind.flag] = bind.state;
                                 end
                                 bind.callback(bind.state)
-                                bind.indicatorValue:SetEnabled(bind.state and not bind.noindicator);
+                                library:formatKeyIndicatorRow(bind)
                             elseif bind.mode == 'hold' then
                                 if bind.flag then
                                     library.flags[bind.flag] = true;
                                 end
-                                bind.indicatorValue:SetEnabled(true and not bind.noindicator);
+                                library:formatKeyIndicatorRow(bind)
                                 c = utility:Connection(runservice.RenderStepped, function()
                                     bind.callback(true);
                                 end)
@@ -4569,7 +4696,7 @@ function library:init()
                                         library.flags[bind.flag] = false;
                                     end
                                     bind.callback(false);
-                                    bind.indicatorValue:SetEnabled(false);
+                                    library:formatKeyIndicatorRow(bind)
                                 end
                             end
                         end
@@ -4999,7 +5126,6 @@ function library:init()
         self.watermark = {
             objects = {};
             text = {
-                {'PUT2.REST', true},
                 {self.cheatname, true},
                 {self.gamename, true},
                 {'0 fps', true},
@@ -5019,10 +5145,10 @@ function library:init()
                 local daySuffix = math.floor(date[2]%10)
                 date[2] = date[2]..(daySuffix == 1 and 'st' or daySuffix == 2 and 'nd' or daySuffix == 3 and 'rd' or 'th')
 
-                self.text[4][1] = library.stats.fps..' fps'
-                self.text[5][1] = floor(library.stats.ping)..'ms'
-                self.text[6][1] = os.date('%X', os.time())
-                self.text[7][1] = table.concat(date, ', ')
+                self.text[3][1] = library.stats.fps..' fps'
+                self.text[4][1] = floor(library.stats.ping)..'ms'
+                self.text[5][1] = os.date('%X', os.time())
+                self.text[6][1] = table.concat(date, ', ')
 
                 local text = {};
                 for _,v in next, self.text do
@@ -5245,6 +5371,9 @@ function library:CreateSettingsTab(menu)
     mainSection:AddSeparator({text = 'Keybinds'});
     mainSection:AddToggle({text = 'Keybind Indicator', flag = 'keybind_indicator', callback = function(bool)
         library.keyIndicator:SetEnabled(bool);
+    end})
+    mainSection:AddToggle({text = 'Detailed Keybind Indicator', tooltip = '[✔]/[✕]/[○] prefix + key', flag = 'keybind_indicator_detailed', callback = function()
+        library:refreshKeybindIndicatorRows();
     end})
     mainSection:AddSlider({text = 'Position X', flag = 'keybind_indicator_x', min = 0, max = 100, increment = .1, value = .5, callback = function()
         library.keyIndicator:SetPosition(newUDim2(library.flags.keybind_indicator_x / 100, 0, library.flags.keybind_indicator_y / 100, 0));    
