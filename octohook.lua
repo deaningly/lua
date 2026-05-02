@@ -5130,7 +5130,15 @@ function library:CreateSettingsTab(menu)
 
     local function refreshConfigs()
         library.options.selectedconfig:ClearValues();
-        for _,v in next, listfiles(self.cheatname..'/'..self.gamename..'/configs') do
+        local cfgPath = self.cheatname..'/'..self.gamename..'/configs'
+        local files = {}
+        local okLf, listed = pcall(function()
+            return listfiles(cfgPath)
+        end)
+        if okLf and typeof(listed) == 'table' then
+            files = listed
+        end
+        for _, v in next, files do
             local ext = '.'..v:split('.')[#v:split('.')];
             if ext == self.fileext then
                 library.options.selectedconfig:AddValue(v:split('\\')[#v:split('\\')]:sub(1,-#ext-1))
