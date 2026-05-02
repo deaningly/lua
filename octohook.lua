@@ -2205,10 +2205,13 @@ function library:init()
                 if h then
                     if self.inlineBinding then
                         h.Text = '[...]'
+                        h.Visible = true
                     elseif self.inlineBind == 'none' then
                         h.Text = '[-]'
+                        h.Visible = true
                     else
-                        h.Text = 'RMB'
+                        h.Text = ''
+                        h.Visible = false
                     end
                     h.Position = newUDim2(1, -(h.TextBounds.X + 8), 0, 5)
                 end
@@ -2307,10 +2310,13 @@ function library:init()
                 if h then
                     if self.inlineBinding then
                         h.Text = '[...]'
+                        h.Visible = true
                     elseif self.inlineBind == 'none' then
                         h.Text = '[-]'
+                        h.Visible = true
                     else
-                        h.Text = 'RMB'
+                        h.Text = ''
+                        h.Visible = false
                     end
                     h.Position = newUDim2(1, -(h.TextBounds.X + 8), 0, 8)
                 end
@@ -2685,7 +2691,7 @@ function library:init()
                         if toggle.keybind then
                             objs.keybindHint = utility:Draw('Text', {
                                 Position = newUDim2(1,-28,0,5);
-                                ThemeColor = 'Accent';
+								ThemeColor = 'Option Text 3';
                                 Size = 11;
                                 Font = 2;
                                 ZIndex = z+9;
@@ -2697,16 +2703,10 @@ function library:init()
 
                         utility:Connection(objs.holder.MouseEnter, function()
                             objs.border1.ThemeColor = 'Accent';
-                            if objs.keybindHint then
-                                objs.keybindHint.ThemeColor = 'Primary Text';
-                            end
                         end)
 
                         utility:Connection(objs.holder.MouseLeave, function()
                             objs.border1.ThemeColor = toggle.state and 'Accent' or 'Option Border 1';
-                            if objs.keybindHint then
-                                objs.keybindHint.ThemeColor = 'Accent';
-                            end
                         end)
 
                         utility:Connection(objs.holder.MouseButton1Down, function()
@@ -2987,23 +2987,21 @@ function library:init()
 
                             objs.clickBindHint = utility:Draw('Text', {
                                 Position = newUDim2(0,2,0,2);
-                                ThemeColor = 'Accent';
+								ThemeColor = 'Option Text 3';
                                 Size = 11;
                                 Font = 2;
                                 ZIndex = z+2;
                                 Outline = true;
-                                Text = 'LMB';
+								Text = '[-]';
                                 Parent = objs.holder;
                             })
     
                             utility:Connection(objs.holder.MouseEnter, function()
                                 objs.keyText.ThemeColor = 'Accent';
-                                objs.clickBindHint.ThemeColor = 'Primary Text';
                             end)
     
                             utility:Connection(objs.holder.MouseLeave, function()
                                 objs.keyText.ThemeColor = bind.binding and 'Accent' or 'Option Text 3';
-                                objs.clickBindHint.ThemeColor = 'Accent';
                             end)
     
                             utility:Connection(objs.holder.MouseButton1Down, function()
@@ -3057,10 +3055,13 @@ function library:init()
                             if hint then
                                 if str == '...' then
                                     hint.Text = '[...]'
+                                    hint.Visible = true
                                 elseif bind.bind == 'none' then
                                     hint.Text = '[-]'
+                                    hint.Visible = true
                                 else
-                                    hint.Text = 'LMB'
+                                    hint.Text = ''
+                                    hint.Visible = false
                                 end
                             end
                             local hx = hint and hint.TextBounds.X > 1 and hint.TextBounds.X or 22
@@ -3834,7 +3835,7 @@ function library:init()
                         if button.keybind then
                             objs.keybindHint = utility:Draw('Text', {
                                 Position = newUDim2(1,-30,0,8);
-                                ThemeColor = 'Accent';
+								ThemeColor = 'Option Text 3';
                                 Size = 11;
                                 Font = 2;
                                 ZIndex = z+8;
@@ -3846,9 +3847,6 @@ function library:init()
 
                         utility:Connection(objs.holder.MouseEnter, function()
                             objs.border1.ThemeColor = 'Accent';
-                            if objs.keybindHint then
-                                objs.keybindHint.ThemeColor = 'Primary Text';
-                            end
                         end)
 
                         utility:Connection(objs.holder.MouseLeave, function()
@@ -3856,9 +3854,6 @@ function library:init()
                             objs.text.ThemeColor = self.risky and 'Risky Text' or 'Option Text 3';
                             objs.background.ThemeColor = 'Option Background';
                             objs.background.ThemeColorOffset = 0;
-                            if objs.keybindHint then
-                                objs.keybindHint.ThemeColor = 'Accent';
-                            end
                         end)
 
                         utility:Connection(objs.holder.MouseButton1Up, function()
@@ -4709,7 +4704,7 @@ function library:init()
 
                         objs.clickBindHint = utility:Draw('Text', {
                             Position = newUDim2(1,-68,0,4);
-                            ThemeColor = 'Accent';
+							ThemeColor = 'Option Text 3';
                             Size = 11;
                             Font = 2;
                             ZIndex = z+2;
@@ -4723,16 +4718,10 @@ function library:init()
 
                         utility:Connection(objs.holder.MouseEnter, function()
                             objs.keyText.ThemeColor = 'Accent';
-                            if objs.clickBindHint.Visible then
-                                objs.clickBindHint.ThemeColor = 'Primary Text';
-                            end
                         end)
 
                         utility:Connection(objs.holder.MouseLeave, function()
                             objs.keyText.ThemeColor = bind.binding and 'Accent' or 'Option Text 3';
-                            if objs.clickBindHint.Visible then
-                                objs.clickBindHint.ThemeColor = 'Accent';
-                            end
                         end)
 
                         utility:Connection(objs.holder.MouseButton1Down, function()
@@ -4794,13 +4783,16 @@ function library:init()
                         local kw = self.objects.keyText.TextBounds.X
                         self.objects.keyText.Position = newUDim2(1, -kw, 0, 2);
                         local h = self.objects.clickBindHint
-                        if h and h.Visible then
+                        if h then
                             if str == '...' then
                                 h.Text = '[...]'
+                                h.Visible = true
                             elseif bind.bind == 'none' then
                                 h.Text = '[-]'
+                                h.Visible = true
                             else
-                                h.Text = 'LMB'
+                                h.Text = ''
+                                h.Visible = false
                             end
                             local gap = 6
                             local hw = h.TextBounds.X
@@ -5454,9 +5446,25 @@ function library:CreateSettingsTab(menu)
 
     refreshConfigs()
 
-    mainSection:AddBind({text = 'Open / Close', flag = 'togglebind', nomouse = true, noindicator = true, bind = Enum.KeyCode.RightShift, callback = function()
+    local openCloseBind = mainSection:AddBind({text = 'Open / Close', flag = 'togglebind', nomouse = true, noindicator = true, bind = Enum.KeyCode.RightShift, callback = function()
         library:SetOpen(not library.open)
     end});
+
+    -- IMPORTANT: Octohook has TWO toggle systems:
+    -- 1) `library.toggleKey` handled globally in InputBegan
+    -- 2) Settings tab "Open / Close" bind (togglebind)
+    -- If both are set to the same key, the menu can toggle twice and instantly hide.
+    pcall(function()
+        library.toggleKey = nil
+        if openCloseBind and openCloseBind.SetBind then
+            openCloseBind:SetBind(Enum.KeyCode.RightShift)
+        elseif library.options and library.options.togglebind and library.options.togglebind.SetBind then
+            library.options.togglebind:SetBind(Enum.KeyCode.RightShift)
+        end
+        if library.flags then
+            library.flags.togglebind = Enum.KeyCode.RightShift
+        end
+    end)
 
     mainSection:AddToggle({text = 'Disable Movement If Open', flag = 'disablemenumovement', callback = function(bool)
         if bool and library.open then
