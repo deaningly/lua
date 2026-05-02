@@ -3021,28 +3021,20 @@ function library:init()
                                 if bind.flag then
                                     library.flags[bind.flag] = false;
                                 end
-                                bind.callback(false);
+                                if bind.callback then
+                                    bind.callback(false);
+                                end
                             end
+
                             local keyName = 'NONE'
                             self.bind = (keybind ~= nil and keybind) or self.bind
                             if self.bind == Enum.KeyCode.Backspace then
                                 self.bind = 'none';
-                                bind.state = true
-                                if bind.flag then
-                                    library.flags[bind.flag] = bind.state;
-                                end
-                                self.callback(true)
                                 keyName = ''
-                            else
+                            elseif self.bind ~= 'none' then
                                 keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
                             end
-                            if self.bind ~= 'none' then
-                                bind.state = false
-                                if bind.flag then
-                                    library.flags[bind.flag] = bind.state;
-                                end
-                                self.callback(false)
-                            end
+
                             self.keycallback(self.bind);
                             self:SetKeyText(keyName:upper());
                             library:formatKeyIndicatorRow(bind)
@@ -4537,7 +4529,7 @@ function library:init()
                         end
                     end
 
-                    local cBeg, cChg
+                    local c
                     local input = box.input;
                     function box:CaptureFocus(clear)
                         box.focused = true
@@ -4547,45 +4539,36 @@ function library:init()
                         end
 
                         self.objects.inputText.ThemeColor = 'Option Text 1';
-                        if cBeg then
-                            cBeg:Disconnect()
-                        end
-                        if cChg then
-                            cChg:Disconnect()
+                        if c then
+                            c:Disconnect()
                         end
 
-                        cBeg = utility:Connection(inputservice.InputBegan, function(inp, gpe)
+                        c = utility:Connection(inputservice.InputBegan, function(inp)
                             if not box.focused then
                                 return
                             end
+
                             if inp.KeyCode == Enum.KeyCode.Return or inp.UserInputType == Enum.UserInputType.MouseButton1 then
                                 box:ReleaseFocus(true);
-                            elseif inp.KeyCode == Enum.KeyCode.Escape then
+                                return
+                            end
+                            if inp.KeyCode == Enum.KeyCode.Escape then
                                 input = self.input
                                 self.objects.inputText.Text = input;
                                 box:ReleaseFocus();
-                            end
-                        end)
-
-                        cChg = utility:Connection(inputservice.InputChanged, function(inp, gpe)
-                            if not box.focused then
                                 return
                             end
+
                             if inp.UserInputType ~= Enum.UserInputType.Keyboard then
                                 return
                             end
-                            -- Repeated backward erase: Backspace only (not Forward Delete / Del).
+
                             if inp.KeyCode == Enum.KeyCode.Backspace then
-                                if inp.UserInputState ~= Enum.UserInputState.Begin and inp.UserInputState ~= Enum.UserInputState.Repeat then
-                                    return
-                                end
                                 input = input:sub(1, -2)
                                 self.objects.inputText.Text = input
                                 return
                             end
-                            if inp.UserInputState ~= Enum.UserInputState.Begin and inp.UserInputState ~= Enum.UserInputState.Repeat then
-                                return
-                            end
+
                             local ok, ch = pcall(function()
                                 return inputservice:GetStringForKeyCode(inp.KeyCode)
                             end)
@@ -4604,6 +4587,7 @@ function library:init()
                             if byte and byte < 32 then
                                 return
                             end
+
                             input = input .. ch
                             self.objects.inputText.Text = input
                         end)
@@ -4615,13 +4599,9 @@ function library:init()
                         if apply then
                             box:SetInput(input);
                         end
-                        if cBeg then
-                            cBeg:Disconnect()
-                            cBeg = nil
-                        end
-                        if cChg then
-                            cChg:Disconnect()
-                            cChg = nil
+                        if c then
+                            c:Disconnect()
+                            c = nil
                         end
                     end
 
@@ -4755,28 +4735,20 @@ function library:init()
                             if bind.flag then
                                 library.flags[bind.flag] = false;
                             end
-                            bind.callback(false);
+                            if bind.callback then
+                                bind.callback(false);
+                            end
                         end
+
                         local keyName = 'NONE'
                         self.bind = (keybind ~= nil and keybind) or self.bind
                         if self.bind == Enum.KeyCode.Backspace then
                             self.bind = 'none';
-                            bind.state = true
-                            if bind.flag then
-                                library.flags[bind.flag] = bind.state;
-                            end
-                            self.callback(true)
                             keyName = ''
-                        else
+                        elseif self.bind ~= 'none' then
                             keyName = keyNames[self.bind] or (typeof(self.bind) == 'EnumItem' and self.bind.Name) or tostring(self.bind)
                         end
-                        if self.bind ~= 'none' then
-                            bind.state = false
-                            if bind.flag then
-                                library.flags[bind.flag] = bind.state;
-                            end
-                            self.callback(false)
-                        end
+
                         self.keycallback(self.bind);
                         self:SetKeyText(keyName:upper());
                         library:formatKeyIndicatorRow(bind)
